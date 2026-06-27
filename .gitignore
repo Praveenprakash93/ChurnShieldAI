@@ -1,0 +1,59 @@
+# ============================================================
+# Customer Churn Prediction - .gitignore
+# ============================================================
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+.env
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+*.egg
+
+# Models (large files - use Git LFS or exclude)
+models/*.pkl
+models/*.joblib
+
+# Data (raw data should not be committed)
+data/raw/*.csv
+data/processed/*.csv
+
+# Reports
+reports/figures/*.png
+reports/figures/*.html
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+logs/
+
+# Streamlit
+.streamlit/
+
+# Misc
+*.tmp
+*.bak

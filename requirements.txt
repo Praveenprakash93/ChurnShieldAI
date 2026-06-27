@@ -1,0 +1,36 @@
+# ============================================================
+# Customer Churn Prediction - Requirements
+# Python 3.12+
+# ============================================================
+
+# Core Data Science
+pandas==2.2.2
+numpy==1.26.4
+
+# Visualization
+matplotlib==3.9.0
+seaborn==0.13.2
+plotly==5.22.0
+
+# Machine Learning
+scikit-learn==1.5.0
+xgboost==2.0.3
+imbalanced-learn==0.12.3
+
+# Model Explainability
+shap==0.45.1
+
+# Model Serialization
+joblib==1.4.2
+
+# Web Application
+streamlit==1.35.0
+
+# Utilities
+python-dotenv==1.0.1
+tqdm==4.66.4
+colorama==0.4.6
+
+# Notebook Support
+ipykernel==6.29.4
+notebook==7.2.1
