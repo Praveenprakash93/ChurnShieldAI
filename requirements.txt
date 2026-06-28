@@ -27,3 +27,4 @@ python-dotenv>=1.0,<2
 
 # Database
 pymongo[srv]>=4.7,<5
+certifi>=2024.0.0

@@ -56,12 +56,14 @@ def _get_mongo_connection() -> Dict[str, Any]:
         return result
 
     try:
+        import certifi
         client = MongoClient(
             uri,
             server_api=ServerApi("1"),
             serverSelectionTimeoutMS=5000,
             connectTimeoutMS=5000,
             socketTimeoutMS=10000,
+            tlsCAFile=certifi.where(),
         )
         # Verify connection
         client.admin.command("ping")
