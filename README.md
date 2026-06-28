@@ -150,6 +150,7 @@ End-to-End ML Pipeline:
 | Data | Pandas, NumPy | 2.2.2, 1.26.4 |
 | Visualization | Plotly, Matplotlib, Seaborn | Latest |
 | Dashboard | Streamlit | 1.35.0 |
+| Database | MongoDB Atlas (pymongo) | 4.7+ |
 | Serialization | Joblib | 1.4.2 |
 
 ---
@@ -179,7 +180,8 @@ Customer-Churn-Prediction/
 │   └── train_pipeline.py       # End-to-end training orchestrator
 │
 ├── 📱 app/
-│   └── app.py                  # Streamlit dashboard (1200+ lines)
+│   ├── app.py                  # Streamlit dashboard (1500+ lines)
+│   └── db.py                   # MongoDB persistence layer
 │
 ├── 🤖 models/
 │   ├── churn_model.pkl         # Best trained model (XGBoost)
@@ -189,7 +191,12 @@ Customer-Churn-Prediction/
 ├── 📊 reports/
 │   └── figures/                # All generated plots (PNG)
 │
+├── ⚙️ .streamlit/
+│   ├── config.toml             # Streamlit server configuration
+│   └── secrets.toml.example    # Template for MongoDB secrets
+│
 ├── requirements.txt            # Python dependencies
+├── runtime.txt                 # Python version for Streamlit Cloud
 ├── README.md                   # This file
 └── .gitignore                  # Git ignore rules
 ```
@@ -253,6 +260,38 @@ streamlit run app/app.py
 ```
 
 Open your browser: **http://localhost:8501**
+
+### Step 6 (Optional): Enable MongoDB for Persistent History
+
+By default, prediction history is stored in-memory and resets on page refresh. To enable **persistent history** across sessions, connect to a free MongoDB Atlas cluster.
+
+#### 6a. Create a Free Atlas Cluster
+
+1. Go to [MongoDB Atlas](https://cloud.mongodb.com) and create a free account
+2. Create a **free M0 cluster** (512 MB, no credit card required)
+3. Create a **database user** (Database Access → Add New User)
+4. Under **Network Access**, click "Add IP Address" → **Allow Access from Anywhere** (`0.0.0.0/0`)
+5. Click **Connect** → **Drivers** → Copy the connection string
+
+#### 6b. Configure Secrets (Local Development)
+
+Create `.streamlit/secrets.toml` (this file is gitignored):
+
+```toml
+[mongo]
+uri = "mongodb+srv://<username>:<password>@<cluster>.mongodb.net/?retryWrites=true&w=majority&appName=ChurnShield"
+db_name = "churnshield"
+collection_name = "predictions"
+```
+
+#### 6c. Configure Secrets (Streamlit Community Cloud)
+
+1. Go to your app on [share.streamlit.io](https://share.streamlit.io)
+2. Click **Settings** → **Secrets**
+3. Paste the same TOML content from step 6b
+4. Click **Save** → The app will reboot with MongoDB enabled
+
+> **Note:** The app works perfectly without MongoDB — it simply runs in "session-only" mode. The History tab shows a connection status indicator (🟢 Connected or ⚪ Session-only).
 
 ---
 

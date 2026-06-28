@@ -53,6 +53,7 @@ logs/
 
 # Streamlit (keep .streamlit/ for cloud config)
 # .streamlit/
+.streamlit/secrets.toml
 
 # Misc
 *.tmp

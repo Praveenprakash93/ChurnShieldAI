@@ -59,6 +59,12 @@ except ImportError as e:
     MODULES_LOADED = False
     IMPORT_ERROR = str(e)
 
+# ── Import MongoDB layer ──────────────────────────────────────────────────────
+from db import (
+    save_prediction, get_prediction_history, get_stats,
+    clear_history, is_mongo_available, get_connection_status
+)
+
 # ─────────────────────────────────────────────────────────────────────────────
 # CUSTOM CSS — Dark Mode Premium Theme
 # ─────────────────────────────────────────────────────────────────────────────
@@ -388,7 +394,7 @@ def inject_custom_css():
 # SESSION STATE INITIALIZATION
 # ─────────────────────────────────────────────────────────────────────────────
 def init_session_state():
-    """Initialize all session state variables."""
+    """Initialize all session state variables. Loads history from MongoDB if available."""
     defaults = {
         "prediction_history": [],
         "predictor": None,
@@ -396,10 +402,21 @@ def init_session_state():
         "last_prediction": None,
         "total_predictions": 0,
         "churns_predicted": 0,
+        "_mongo_history_loaded": False,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
+
+    # Load history from MongoDB on first session load
+    if not st.session_state._mongo_history_loaded and is_mongo_available():
+        db_history = get_prediction_history(limit=200)
+        if db_history:
+            st.session_state.prediction_history = db_history
+        db_stats = get_stats()
+        st.session_state.total_predictions = db_stats["total_predictions"]
+        st.session_state.churns_predicted = db_stats["churns_predicted"]
+        st.session_state._mongo_history_loaded = True
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -741,6 +758,9 @@ def render_sidebar() -> Dict[str, Any]:
             st.session_state.prediction_history = []
             st.session_state.total_predictions = 0
             st.session_state.churns_predicted = 0
+            # Also clear MongoDB history
+            if is_mongo_available():
+                clear_history()
             st.rerun()
 
     customer_data = {
@@ -971,10 +991,36 @@ def render_history_panel():
     """Render the prediction history table and chart."""
     history = st.session_state.prediction_history
 
-    st.markdown(
-        "<div class='section-header'>📈 Prediction History</div>",
-        unsafe_allow_html=True
-    )
+    # ── MongoDB connection status ──────────────────────────────────────────
+    status = get_connection_status()
+    if status["connected"]:
+        status_html = (
+            "<span style='color:#10B981;font-size:0.8rem'>"
+            "🟢 MongoDB Connected — History is persistent</span>"
+        )
+    else:
+        status_html = (
+            "<span style='color:#94A3B8;font-size:0.8rem'>"
+            "⚪ Session-only mode — History resets on refresh</span>"
+        )
+
+    col_header, col_status = st.columns([2, 1])
+    with col_header:
+        st.markdown(
+            "<div class='section-header'>📈 Prediction History</div>",
+            unsafe_allow_html=True
+        )
+    with col_status:
+        st.markdown(status_html, unsafe_allow_html=True)
+        if status["connected"]:
+            if st.button("🔄 Refresh from DB", key="refresh_db_btn"):
+                db_history = get_prediction_history(limit=200)
+                if db_history:
+                    st.session_state.prediction_history = db_history
+                db_stats = get_stats()
+                st.session_state.total_predictions = db_stats["total_predictions"]
+                st.session_state.churns_predicted = db_stats["churns_predicted"]
+                st.rerun()
 
     if not history:
         st.info("No predictions yet. Use the sidebar form to predict churn risk.")
@@ -1432,6 +1478,9 @@ def main():
                             "prediction": "Churn" if result["churn_prediction"]
                                           else "No Churn",
                         }
+
+                        # Persist to MongoDB
+                        save_prediction(history_record)
                         history_record.update(customer_data)
                         st.session_state.prediction_history.append(
                             history_record
