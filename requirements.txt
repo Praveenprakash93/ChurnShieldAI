@@ -26,4 +26,4 @@ streamlit>=1.35,<2
 python-dotenv>=1.0,<2
 
 # Database
-pymongo>=4.7,<5
+pymongo[srv]>=4.7,<5

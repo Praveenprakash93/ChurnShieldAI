@@ -999,9 +999,12 @@ def render_history_panel():
             "🟢 MongoDB Connected — History is persistent</span>"
         )
     else:
+        error_msg = status.get("message", "Unknown error")
+        # Escape quotes just in case
+        error_msg_safe = str(error_msg).replace("'", "&#39;").replace('"', "&quot;")
         status_html = (
-            "<span style='color:#94A3B8;font-size:0.8rem'>"
-            "⚪ Session-only mode — History resets on refresh</span>"
+            f"<span style='color:#94A3B8;font-size:0.8rem' title='Error: {error_msg_safe}'>"
+            "⚪ Session-only mode — History resets on refresh (Hover for error)</span>"
         )
 
     col_header, col_status = st.columns([2, 1])
