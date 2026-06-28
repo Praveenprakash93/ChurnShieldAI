@@ -62,7 +62,8 @@ except ImportError as e:
 # ── Import MongoDB layer ──────────────────────────────────────────────────────
 from db import (
     save_prediction, get_prediction_history, get_stats,
-    clear_history, is_mongo_available, get_connection_status
+    clear_history, is_mongo_available, get_connection_status,
+    create_user, authenticate_user
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -402,21 +403,77 @@ def init_session_state():
         "last_prediction": None,
         "total_predictions": 0,
         "churns_predicted": 0,
-        "_mongo_history_loaded": False,
+        "logged_in": False,
+        "current_user": None,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
 
-    # Load history from MongoDB on first session load
-    if not st.session_state._mongo_history_loaded and is_mongo_available():
-        db_history = get_prediction_history(limit=200)
-        if db_history:
+def load_user_data(username: str):
+    """Load MongoDB history for the logged-in user."""
+    if is_mongo_available():
+        db_history = get_prediction_history(limit=200, username=username)
+        if db_history is not None:
             st.session_state.prediction_history = db_history
-        db_stats = get_stats()
-        st.session_state.total_predictions = db_stats["total_predictions"]
-        st.session_state.churns_predicted = db_stats["churns_predicted"]
-        st.session_state._mongo_history_loaded = True
+        db_stats = get_stats(username=username)
+        st.session_state.total_predictions = db_stats.get("total_predictions", 0)
+        st.session_state.churns_predicted = db_stats.get("churns_predicted", 0)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AUTHENTICATION PAGE
+# ─────────────────────────────────────────────────────────────────────────────
+def render_auth_page():
+    """Render the login and registration UI."""
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align:center;'>Welcome to ChurnShield AI</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align:center; color:#94A3B8;'>Please log in or register to access the dashboard.</p>", unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        tab_login, tab_register = st.tabs(["🔒 Login", "📝 Register"])
+        
+        with tab_login:
+            with st.form("login_form"):
+                username = st.text_input("Username")
+                password = st.text_input("Password", type="password")
+                submitted = st.form_submit_button("Login", use_container_width=True)
+                
+                if submitted:
+                    if not username or not password:
+                        st.error("Please enter both username and password.")
+                    else:
+                        with st.spinner("Authenticating..."):
+                            res = authenticate_user(username, password)
+                            if res["success"]:
+                                st.session_state.logged_in = True
+                                st.session_state.current_user = res["username"]
+                                load_user_data(res["username"])
+                                st.rerun()
+                            else:
+                                st.error(res["message"])
+                                
+        with tab_register:
+            with st.form("register_form"):
+                reg_username = st.text_input("Choose Username")
+                reg_password = st.text_input("Choose Password", type="password")
+                reg_password_confirm = st.text_input("Confirm Password", type="password")
+                reg_submitted = st.form_submit_button("Register", use_container_width=True)
+                
+                if reg_submitted:
+                    if not reg_username or not reg_password:
+                        st.error("Please fill in all fields.")
+                    elif reg_password != reg_password_confirm:
+                        st.error("Passwords do not match.")
+                    else:
+                        with st.spinner("Creating account..."):
+                            res = create_user(reg_username, reg_password)
+                            if res["success"]:
+                                st.success("Account created successfully! Please switch to the Login tab.")
+                            else:
+                                st.error(res["message"])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -668,6 +725,15 @@ def render_sidebar() -> Dict[str, Any]:
         """, unsafe_allow_html=True)
 
         st.markdown("### 👤 Customer Profile")
+        
+        # User auth state (Logout button)
+        if st.session_state.get("logged_in"):
+            st.markdown(f"<div style='color:var(--accent-blue);margin-bottom:1rem;'>Logged in as: <b>{st.session_state.current_user}</b></div>", unsafe_allow_html=True)
+            if st.button("🚪 Logout", use_container_width=True):
+                for key in list(st.session_state.keys()):
+                    del st.session_state[key]
+                st.rerun()
+            st.markdown("<hr style='border-color:#2D3748;margin:0.8rem 0'>", unsafe_allow_html=True)
 
         # ── Demographics ──────────────────────────────────────────────────
         with st.expander("📊 Demographics", expanded=True):
@@ -1017,12 +1083,7 @@ def render_history_panel():
         st.markdown(status_html, unsafe_allow_html=True)
         if status["connected"]:
             if st.button("🔄 Refresh from DB", key="refresh_db_btn"):
-                db_history = get_prediction_history(limit=200)
-                if db_history:
-                    st.session_state.prediction_history = db_history
-                db_stats = get_stats()
-                st.session_state.total_predictions = db_stats["total_predictions"]
-                st.session_state.churns_predicted = db_stats["churns_predicted"]
+                load_user_data(st.session_state.current_user)
                 st.rerun()
 
     if not history:
@@ -1427,6 +1488,11 @@ def main():
     # Initialize session state
     init_session_state()
 
+    # Require Login
+    if not st.session_state.get("logged_in"):
+        render_auth_page()
+        return
+
     # Load predictor
     predictor = load_predictor()
     model_ready = predictor is not None and predictor.is_ready
@@ -1483,7 +1549,7 @@ def main():
                         }
 
                         # Persist to MongoDB
-                        save_prediction(history_record)
+                        save_prediction(history_record, username=st.session_state.current_user)
                         history_record.update(customer_data)
                         st.session_state.prediction_history.append(
                             history_record

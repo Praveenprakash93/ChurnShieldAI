@@ -15,6 +15,7 @@ Usage:
 """
 
 import datetime
+import bcrypt
 from typing import Any, Dict, List, Optional
 
 import streamlit as st
@@ -90,9 +91,77 @@ def _get_collection():
         return None
 
 
+def _get_users_collection():
+    """Get the users collection, or None if unavailable."""
+    conn = _get_mongo_connection()
+    if not conn["connected"]:
+        return None
+
+    try:
+        mongo_cfg = st.secrets["mongo"]
+        db_name = mongo_cfg.get("db_name", "churnshield")
+        # Ensure we have a distinct collection for users
+        collection_name = mongo_cfg.get("users_collection_name", "users")
+        return conn["client"][db_name][collection_name]
+    except (KeyError, FileNotFoundError):
+        return None
+
+
 # ─────────────────────────────────────────────────────────────────────────────
-# PUBLIC API
+# PUBLIC API: AUTHENTICATION
 # ─────────────────────────────────────────────────────────────────────────────
+
+def create_user(username: str, password: str) -> Dict[str, Any]:
+    """
+    Create a new user with a hashed password.
+    Returns dict with 'success' and 'message'.
+    """
+    collection = _get_users_collection()
+    if collection is None:
+        return {"success": False, "message": "Database not available"}
+
+    username = username.strip().lower()
+    
+    # Check if exists
+    if collection.find_one({"username": username}):
+        return {"success": False, "message": "Username already exists"}
+
+    hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
+    
+    try:
+        collection.insert_one({
+            "username": username,
+            "password": hashed_password,
+            "created_at": datetime.datetime.utcnow()
+        })
+        return {"success": True, "message": "User registered successfully"}
+    except Exception as e:
+        return {"success": False, "message": f"Registration failed: {str(e)}"}
+
+
+def authenticate_user(username: str, password: str) -> Dict[str, Any]:
+    """
+    Verify user credentials.
+    Returns dict with 'success', 'message', and 'username' if successful.
+    """
+    collection = _get_users_collection()
+    if collection is None:
+        return {"success": False, "message": "Database not available"}
+
+    username = username.strip().lower()
+    user = collection.find_one({"username": username})
+    
+    if not user:
+        return {"success": False, "message": "Invalid username or password"}
+
+    if bcrypt.checkpw(password.encode('utf-8'), user["password"]):
+        return {"success": True, "message": "Login successful", "username": username}
+    else:
+        return {"success": False, "message": "Invalid username or password"}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PUBLIC API: PREDICTIONS
 
 def is_mongo_available() -> bool:
     """Check if MongoDB is connected and available."""
@@ -122,13 +191,14 @@ def get_connection_status() -> Dict[str, Any]:
         }
 
 
-def save_prediction(record: Dict[str, Any]) -> bool:
+def save_prediction(record: Dict[str, Any], username: Optional[str] = None) -> bool:
     """
     Save a prediction record to MongoDB.
 
     Args:
         record: Dictionary with prediction data (customer features,
                 churn probability, risk score, etc.)
+        username: The user making the prediction
 
     Returns:
         True if saved successfully, False otherwise.
@@ -141,6 +211,8 @@ def save_prediction(record: Dict[str, Any]) -> bool:
         # Add a proper datetime for sorting/querying
         doc = record.copy()
         doc["created_at"] = datetime.datetime.utcnow()
+        if username:
+            doc["username"] = username
 
         collection.insert_one(doc)
         return True
@@ -148,12 +220,13 @@ def save_prediction(record: Dict[str, Any]) -> bool:
         return False
 
 
-def get_prediction_history(limit: int = 100) -> List[Dict[str, Any]]:
+def get_prediction_history(limit: int = 100, username: Optional[str] = None) -> List[Dict[str, Any]]:
     """
     Fetch recent prediction history from MongoDB.
 
     Args:
         limit: Maximum number of records to return.
+        username: Filter by username
 
     Returns:
         List of prediction records (newest first), or empty list.
@@ -163,8 +236,12 @@ def get_prediction_history(limit: int = 100) -> List[Dict[str, Any]]:
         return []
 
     try:
+        query = {}
+        if username:
+            query["username"] = username
+            
         cursor = (
-            collection.find({}, {"_id": 0})
+            collection.find(query, {"_id": 0})
             .sort("created_at", -1)
             .limit(limit)
         )
@@ -176,7 +253,7 @@ def get_prediction_history(limit: int = 100) -> List[Dict[str, Any]]:
         return []
 
 
-def get_stats() -> Dict[str, int]:
+def get_stats(username: Optional[str] = None) -> Dict[str, int]:
     """
     Get aggregate prediction statistics from MongoDB.
 
@@ -188,8 +265,17 @@ def get_stats() -> Dict[str, int]:
         return {"total_predictions": 0, "churns_predicted": 0}
 
     try:
-        total = collection.count_documents({})
-        churns = collection.count_documents({"prediction": "Churn"})
+        query = {}
+        if username:
+            query["username"] = username
+            
+        total = collection.count_documents(query)
+        
+        churn_query = {"prediction": "Churn"}
+        if username:
+            churn_query["username"] = username
+            
+        churns = collection.count_documents(churn_query)
         return {
             "total_predictions": total,
             "churns_predicted": churns,
@@ -198,9 +284,9 @@ def get_stats() -> Dict[str, int]:
         return {"total_predictions": 0, "churns_predicted": 0}
 
 
-def clear_history() -> bool:
+def clear_history(username: Optional[str] = None) -> bool:
     """
-    Delete all prediction records from MongoDB.
+    Delete prediction records from MongoDB.
 
     Returns:
         True if cleared successfully, False otherwise.
@@ -210,7 +296,11 @@ def clear_history() -> bool:
         return False
 
     try:
-        collection.delete_many({})
+        query = {}
+        if username:
+            query["username"] = username
+            
+        collection.delete_many(query)
         return True
     except Exception:
         return False
